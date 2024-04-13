@@ -24,7 +24,7 @@ def parse_header():
                         for i in param_types_temp:
                             param_types.append(i.replace(" ", ""))
                         print(param_types)
-                    functions[function_name] = [function_name, rtv_type, param_types]
+                    functions[function_name] = {'name': function_name, 'rtv_type': rtv_type, 'params': param_types}
     return functions
 def parse_c():
     c_files = []
@@ -41,18 +41,38 @@ def parse_c():
     return includes
 def write_fuzzer(function, includes):
     os.makedirs("fuzzer", exist_ok=True)
-    with open(f"fuzzer/{function[0]}_fuzzer.c", 'w') as f:
+    free = []
+    with open(f"fuzzer/{function['name']}_fuzzer.c", 'w') as f:
         for include in includes:
             f.write(f"#include {include}\n")
         f.write("int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {\n")
-        f.write(f"    {function[1]} rtv;\n")
+        if (function['rtv_type'] != "void"):
+            f.write(f"    {function['rtv_type']} rtv;\n")
+        
+        for i, param in enumerate(function['params']):
+            f.write(f"    {param} a{i};\n")
+            # all pointers will call the utility get random bytes - then will be casted to the appropriate type
+            if param.endswith("*"):
+                free.append(i)
+                f.write(f"    uint8_t* d{i} = get_random_bytes(data, size);\n")
+                if param[-2] == "*":
+                    f.write(f"    a{i} = &({param[:-1]})d{i};\n")
+                else:
+                    f.write(f"    a{i} = ({param})d{i};\n")
+            else:
+                # non-pointer will be assigned directley from the fuzz data
+                f.write(f"    a{i} = *({param}*)data;\n")
+        s = [f'a{i}' for i in range(len(function['params']))]
+        if (function['rtv_type'] != "void"):
+            f.write(f"    rtv = {function['name']}({', '.join(s)});\n")
+        else:
+            f.write(f"    {function['name']}({', '.join(s)});\n")
+        for i in free:
+            f.write(f"    free(d{i});\n")
         f.write(f"    return 0;\n")
         f.write("}\n")
 if __name__ == "__main__":
     functions = parse_header()
     includes = parse_c()
-    for name in functions.keys():
-        write_fuzzer(functions[name], includes)
-
-# handle only native c data types for now
-# fill them with data from the fuzzer
+    for function in functions.values():
+        write_fuzzer(function, includes)

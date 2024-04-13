@@ -5,6 +5,6 @@
 
 int func1(int a, int b);
 int func2(int a, int b);
-char * func3(char *a, int b);
+char * func3(char **a, int b);
 
 #endif
